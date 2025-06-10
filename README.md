@@ -161,5 +161,3 @@ You will need to uncomment the MSAL-related code in the following files:
 - You should now be redirected to the Azure AD sign-in page when accessing the application.
 
 ---
-
-This README should provide a good starting point for anyone looking to use or contribute to your project.
