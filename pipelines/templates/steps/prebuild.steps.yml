@@ -1,0 +1,21 @@
+parameters:
+  - name: backend_folder
+    type: string
+  - name: frontend_folder
+    type: string
+
+steps:
+  - task: NodeTool@0
+    displayName: 'Use Node.js 20.x'
+    inputs:
+      versionSpec: '20.x'
+
+  - script: |
+      cd ${{ parameters.backend_folder }}
+      npm install
+    displayName: 'Install Backend Dependencies'
+
+  - script: |
+      cd ${{ parameters.frontend_folder }}
+      npm install 
+    displayName: 'Install Frontend Dependencies'

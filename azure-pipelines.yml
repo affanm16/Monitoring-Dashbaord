@@ -1,0 +1,123 @@
+trigger:
+  batch: false
+  branches:
+    include:
+      - main
+      
+variables:
+  server_ip: "x.y.z.w"
+  server_base_url: "https://<ip>:3003"
+resources:
+  repositories:
+    - repository: scripts
+      trigger: none
+      name: DeployScripts
+      ref: refs/tags/release-2.7.5
+      type: git
+    - repository: self
+
+stages:
+  - stage: static_code_analysis
+    displayName: Run Code QL Scan
+    dependsOn: []
+    jobs:
+      - template: /jobs/advanced.security.yml@scripts
+        parameters:
+          pool:
+            vmImage: ubuntu-latest
+          languages: javascript
+          querySuite: 'default'
+          preBuild:
+            - template: pipelines/templates/steps/prebuild.steps.yml
+              parameters:
+                backend_folder: 'backend'
+                frontend_folder: 'frontend'
+          build:
+            - template: pipelines/templates/steps/build.steps.yml
+              parameters:
+                backend_folder: 'backend'
+                frontend_folder: 'frontend'
+                node_version: '20.x'
+                server_base_url: $(server_base_url)
+  - stage: deploy
+    displayName: 'Deploy to Ubuntu Server'
+    pool:
+      name: WindowsDevOpsPool
+    jobs:
+      - job: deploy_dashboard
+        displayName: 'Deploy via SSH'
+        steps:
+          - download: current
+            artifact: Monitoring-Dashboard
+            displayName: 'Downlaod Build Artifacts'
+
+          - task: CopyFilesOverSSH@0
+            displayName: 'Copying build artifact to remote server'
+            inputs:
+              sshEndpoint: 'YourConnection' 
+              sourceFolder: '$(Pipeline.Workspace)/Monitoring-Dashboard'
+              contents: 'Monitoring-Dashboard.tar.gz' 
+              targetFolder: '/home/deployagent/' 
+              readyTimeout: '20000'
+
+          - task: SSH@0
+            displayName: 'Deploying via SSH'
+            inputs:
+              sshEndpoint: 'YourConnection'
+              runOptions: 'inline'
+              inline: |
+                echo "Navigating to /home/deployagent ..."
+                cd /home/deployagent || exit 1
+
+                timestamp=$(date "+%Y%m%d_%H%M%S")
+                export deploy_dir="/home/deployagent/Monitoring-Server-Dashboard-${timestamp}"
+                     
+                echo "Creating new directory"
+                mkdir -p "${deploy_dir}"
+
+                echo "Extracting build ..."
+                tar -xzvf Monitoring-Server-Dashboard.tar.gz -C "${deploy_dir}"
+
+                echo "Listing extracted contents"
+                ls -la "${deploy_dir}"
+                
+
+                echo "Restarting backend with PM2..." 
+                cd "${deploy_dir}/backend"                                                      
+
+                echo "Stopping existing backend pm2 process"
+                pm2 stop backend
+                pm2 delete backend
+                pm2 start server.js --name backend
+
+                
+                echo "Restarting frontend with PM2..."
+                cd "${deploy_dir}/frontend"
+
+                echo "Adding the .env file"
+                cp /home/deployagent/.env.local .
+                
+                echo "Stopping existing frontend pm2 process"
+                pm2 stop frontend
+                pm2 delete frontend
+                npm run build 
+                pm2 start npm --name "frontend" -- start
+
+                echo "Saving PM2 process list..."
+                pm2 save
+                
+                echo "Checking if PM2 apps are running..."
+
+                pm2_status=$(pm2 jlist)
+
+                backend_ok=$(echo "$pm2_status" | grep '"name":"backend"' | grep '"status":"online"')
+                frontend_ok=$(echo "$pm2_status" | grep '"name":"frontend"' | grep '"status":"online"')
+
+                if [ -n "$backend_ok" ] && [ -n "$frontend_ok" ]; then
+                  echo " PM2 processes are running"
+                else
+                  echo " PM2 processes not running properly!"
+                  pm2 status
+                fi
+                # rm -rf /home/deployagent/Monitoring-Server-Dashboard.tar.gz
+

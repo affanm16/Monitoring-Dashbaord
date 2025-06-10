@@ -1,0 +1,49 @@
+parameters:
+  - name: backend_folder
+    type: string
+  - name: frontend_folder
+    type: string
+  - name: node_version
+    type: string
+  - name: server_base_url
+    type: string
+
+steps:
+  - task: NodeTool@0
+    displayName: 'Use Node.js ${{ parameters.node_version }}'
+    inputs:
+      versionSpec: '${{ parameters.node_version }}'
+
+  - script: |
+      cd ${{ parameters.frontend_folder }}
+      npm run build
+    displayName: 'Build Frontend'
+    env:
+      server-base-url: ${{parameters.server_base_url}}
+
+  - script: |
+      echo "Packaging the build artifacts"
+      cd $(Build.SourcesDirectory)
+      mkdir -p $(Build.ArtifactStagingDirectory)
+      
+      echo "Checking backend folder contents:"
+      ls -la ${backend}
+      
+      echo "Checking frontend folder contents:"
+      ls -la ${frontend}
+      
+      tar -czvf $(Build.ArtifactStagingDirectory)/Monitoring-Server-Dashboard.tar.gz ${backend} ${frontend}
+      
+      echo "Checking if archive was created and is non-empty:"
+      ls -lh $(Build.ArtifactStagingDirectory)/Monitoring-Server-Dashboard.tar.gz
+
+    displayName: 'Package Build Artifacts'
+    env:
+      backend: ${{ parameters.backend_folder }}
+      frontend: ${{ parameters.frontend_folder }}
+      
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish Build Artifacts'
+    inputs:
+      artifactName: 'RDMS-Dashboard'
+      targetPath: '$(Build.ArtifactStagingDirectory)/Monitoring-Server-Dashboard.tar.gz'
